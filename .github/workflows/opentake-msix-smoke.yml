@@ -1,0 +1,62 @@
+name: OpenTake signed MSIX install test
+on:
+  push:
+    branches: [product/opentake]
+    paths: ['.github/workflows/opentake-msix-smoke.yml']
+  workflow_dispatch:
+
+permissions:
+  actions: read
+
+jobs:
+  install:
+    if: github.ref == 'refs/heads/product/opentake'
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - name: Download the signed OpenTake build
+        uses: actions/download-artifact@v4
+        with:
+          name: opentake-windows-x64-signed
+          run-id: '42058735625'
+          github-token: ${{ github.token }}
+          path: installer
+      - name: Verify the package, install it and remove it
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = 'Ashbi.OpenTake'
+          $filename = 'OpenTake-windows-x64.msix'
+          $msix = (Resolve-Path (Join-Path installer $filename)).Path
+          $checksumLine = @(Get-Content installer/SHA256SUMS-windows-x64.txt |
+              Where-Object { $_ -match ('^[a-fA-F0-9]{64}\s+' + [regex]::Escape($filename) + '$') })
+          $actual = (Get-FileHash -LiteralPath $msix -Algorithm SHA256).Hash
+          if ($checksumLine.Count -ne 1 -or $actual -ne ($checksumLine[0] -split '\s+')[0]) {
+              throw 'MSIX checksum mismatch.'
+          }
+
+          $sig = Get-AuthenticodeSignature -LiteralPath $msix
+          if ($sig.Status -ne 'Valid' -or -not $sig.TimeStamperCertificate) {
+              throw "MSIX signature check failed: $($sig.Status)"
+          }
+          if (Get-AppxPackage -Name $name) { throw 'OpenTake is already installed on the runner.' }
+
+          try {
+              Add-AppxPackage -Path $msix
+              $pkg = Get-AppxPackage -Name $name
+              if (-not $pkg -or $pkg.Architecture -ne 'X64' -or $pkg.Version -ne '1.4.0.0') {
+                  throw 'Expected OpenTake x64 1.4.0.0 package was not registered.'
+              }
+              $manifest = Get-AppxPackageManifest -Package $pkg
+              $application = $manifest.Package.Applications.Application
+              if ($application.Id -ne 'OpenTake' -or $application.Executable -ne 'OpenTake.exe') {
+                  throw 'The installed manifest has an unexpected application entry.'
+              }
+              Write-Host "Verified installed package: $($pkg.PackageFullName)"
+          }
+          finally {
+              $installed = Get-AppxPackage -Name $name
+              if ($installed) { Remove-AppxPackage -Package $installed.PackageFullName }
+          }
+          if (Get-AppxPackage -Name $name) { throw 'OpenTake remained registered after removal.' }
+          Write-Host 'Signed MSIX installation and removal passed.'
