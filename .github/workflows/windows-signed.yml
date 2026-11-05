@@ -26,13 +26,16 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $config = Get-Content -Raw electron-builder.json5
+          $config -replace '(?s)"publish":\s*\[.*?\],', '' | Set-Content electron-builder.json5
           npm ci --ignore-scripts
           node scripts/install-ffmpeg-static.mjs
           if (Test-Path node_modules/uiohook-napi/build) {
             Remove-Item node_modules/uiohook-napi/build -Recurse -Force
           }
           npx electron-builder install-app-deps
-          npm run build:win -- --dir --x64 --publish never -c.publish=null
+          npm run build:win -- --dir --x64 --publish never
           npm run smoke:packaged-binaries
       - uses: actions/upload-artifact@v4
         with:
@@ -104,11 +107,13 @@ jobs:
             Write-Host "Verified $file ($($signature.SignerCertificate.Subject))"
           }
 
+          $config = Get-Content -Raw electron-builder.json5
+          $config -replace '(?s)"publish":\s*\[.*?\],', '' | Set-Content electron-builder.json5
           # Keep the fork off the upstream auto-update feed.
           $updaterConfig = 'release/win-unpacked/resources/app-update.yml'
           if (Test-Path -LiteralPath $updaterConfig) { Remove-Item -LiteralPath $updaterConfig }
           Sign-RecordlyFile 'release/win-unpacked/Recordly.exe'
-          npx electron-builder --win nsis --x64 --prepackaged release/win-unpacked --publish never -c.publish=null
+          npx electron-builder --win nsis --x64 --prepackaged release/win-unpacked --publish never
           if ($LASTEXITCODE -ne 0) { throw "Installer packaging failed: $LASTEXITCODE" }
           $installer = 'release/Recordly-windows-x64.exe'
           Sign-RecordlyFile $installer
