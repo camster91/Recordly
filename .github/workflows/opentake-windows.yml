@@ -2,7 +2,6 @@ name: OpenTake Windows signed installer
 on:
   push:
     branches: [product/opentake]
-    paths: ['.github/workflows/opentake-windows.yml']
   workflow_dispatch:
 
 permissions:
