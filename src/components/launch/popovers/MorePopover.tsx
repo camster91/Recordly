@@ -184,7 +184,9 @@ export function MorePopover({
 						userSelect: "text",
 					}}
 				>
-					v{appVersion}
+					OpenTake v{appVersion}
+					<br />
+					Based on Recordly and OpenScreen
 				</div>
 			)}
 		</HudPopover>

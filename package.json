@@ -1,15 +1,15 @@
 {
 	"name": "recordly",
-	"productName": "Recordly",
-	"description": "A free, creator-focused screen recorder with auto-zoom, cursor effects, backgrounds, annotations, and more - built for polished videos out of the box.",
-	"author": "webadderall",
-	"homepage": "https://github.com/webadderallorg/Recordly",
+	"productName": "OpenTake",
+	"description": "OpenTake screen recording and video editing",
+	"author": "Cameron Ashley",
+	"homepage": "https://github.com/camster91/Recordly",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/webadderallorg/Recordly.git"
+		"url": "https://github.com/camster91/Recordly.git"
 	},
 	"bugs": {
-		"url": "https://github.com/webadderallorg/Recordly/issues"
+		"url": "https://github.com/camster91/Recordly/issues"
 	},
 	"private": true,
 	"version": "1.4.0",

@@ -1,0 +1,130 @@
+name: OpenTake Windows signed installer
+on:
+  push:
+    branches: [product/opentake]
+    paths: ['.github/workflows/opentake-windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/product/opentake'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build Windows x64 app
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          npm ci --ignore-scripts
+          node scripts/install-ffmpeg-static.mjs
+          if (Test-Path node_modules/uiohook-napi/build) {
+            Remove-Item node_modules/uiohook-napi/build -Recurse -Force
+          }
+          npx electron-builder install-app-deps
+          npm run build:win -- --dir --x64 --publish never
+          npm run smoke:packaged-binaries
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opentake-app-x64
+          path: release/win-unpacked/
+          if-no-files-found: error
+          retention-days: 3
+
+  sign:
+    needs: package
+    if: vars.OPENTAKE_SIGNING_ENABLED == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARTIFACT_SIGNING_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+      ARTIFACT_SIGNING_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT || 'rclickersigning' }}
+      ARTIFACT_SIGNING_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE || 'rclicker' }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check signing settings
+        shell: pwsh
+        run: |
+          foreach ($name in 'AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'ARTIFACT_SIGNING_ENDPOINT') {
+            if (-not [Environment]::GetEnvironmentVariable($name)) {
+              throw "Missing repository Actions variable $name"
+            }
+          }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: opentake-app-x64
+          path: release/win-unpacked
+      - name: Install signing module
+        shell: pwsh
+        run: Install-Module ArtifactSigning -RequiredVersion 0.1.8 -Scope CurrentUser -Force -Repository PSGallery
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Sign and verify the app and installer
+        shell: pwsh
+        run: |
+          Import-Module ArtifactSigning
+          function Sign-OpenTakeFile([string]$Path) {
+            $file = (Resolve-Path -LiteralPath $Path).Path
+            Invoke-ArtifactSigning -Endpoint $env:ARTIFACT_SIGNING_ENDPOINT `
+              -CodeSigningAccountName $env:ARTIFACT_SIGNING_ACCOUNT `
+              -CertificateProfileName $env:ARTIFACT_SIGNING_PROFILE `
+              -Files $file -FileDigest SHA256 `
+              -TimestampRfc3161 'http://timestamp.acs.microsoft.com' -TimestampDigest SHA256
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            if ($signature.Status -ne 'Valid' -or -not $signature.TimeStamperCertificate) {
+              throw "Missing valid timestamped signature for ${file}: $($signature.Status)"
+            }
+            $profileEku = '1.3.6.1.4.1.311.97.901344813.256394575.700491208.142440420'
+            $ekus = $signature.SignerCertificate.Extensions |
+              Where-Object { $_ -is [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension] } |
+              ForEach-Object { $_.EnhancedKeyUsages } | ForEach-Object { $_.Value }
+            if ($profileEku -notin $ekus) { throw "Unexpected signing profile for $file" }
+            Write-Host "Verified $file ($($signature.SignerCertificate.Subject))"
+          }
+
+          # Keep the fork off the upstream auto-update feed.
+          $updaterConfig = 'release/win-unpacked/resources/app-update.yml'
+          if (Test-Path -LiteralPath $updaterConfig) { Remove-Item -LiteralPath $updaterConfig }
+          Sign-OpenTakeFile 'release/win-unpacked/OpenTake.exe'
+          npx electron-builder --win nsis --x64 --prepackaged release/win-unpacked --publish never
+          if ($LASTEXITCODE -ne 0) { throw "Installer packaging failed: $LASTEXITCODE" }
+          $installer = 'release/OpenTake-windows-x64.exe'
+          Sign-OpenTakeFile $installer
+          $msix = 'release/OpenTake-windows-x64.msix'
+          ./scripts/build-opentake-msix.ps1 -AppDirectory 'release/win-unpacked' -OutputPath $msix
+          Sign-OpenTakeFile $msix
+          Get-FileHash -LiteralPath $installer, $msix -Algorithm SHA256 | ForEach-Object {
+            "$($_.Hash.ToLowerInvariant())  $(Split-Path $_.Path -Leaf)"
+          } | Set-Content -Path release/SHA256SUMS-windows-x64.txt -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opentake-windows-x64-signed
+          path: |
+            release/OpenTake-windows-x64.exe
+            release/OpenTake-windows-x64.msix
+            release/SHA256SUMS-windows-x64.txt
+          if-no-files-found: error

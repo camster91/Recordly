@@ -42,7 +42,6 @@ import {
 	previewNativeUpdateDialog,
 	previewUpdateToast,
 	setExperimentalUpdatesEnabled,
-	setupAutoUpdates,
 	skipAvailableUpdateVersion,
 } from "./updater";
 import {
@@ -251,9 +250,8 @@ function getExistingEditorWindow(): BrowserWindow | null {
 let defaultTrayIcon: ReturnType<typeof getTrayIcon> | null = null;
 let recordingTrayIcon: ReturnType<typeof getTrayIcon> | null = null;
 
-function getPlatformAppIconFilename(size: 32 | 128 | 512) {
-	const baseName = process.platform === "darwin" ? "recordlymac" : "recordly";
-	return `app-icons/${baseName}-${size}.png`;
+function getPlatformAppIconFilename(_size: 32 | 128 | 512) {
+	return "app-icons/opentake.png";
 }
 
 function getDefaultTrayIcon() {
@@ -705,7 +703,7 @@ ipcMain.handle("check-for-app-updates", async () => {
 function updateTrayMenu(recording: boolean = false) {
 	if (!tray) return;
 	const trayIcon = recording ? getRecordingTrayIcon() : getDefaultTrayIcon();
-	const trayToolTip = recording ? `Recording: ${selectedSourceName}` : "Recordly";
+	const trayToolTip = recording ? `Recording: ${selectedSourceName}` : "OpenTake";
 	const menuTemplate = recording
 		? [
 				{
@@ -890,7 +888,7 @@ app.on("second-instance", () => {
 // Register all IPC handlers when app is ready
 app.whenReady().then(async () => {
 	if (process.platform === "win32") {
-		app.setAppUserModelId("dev.recordly.app");
+		app.setAppUserModelId("ca.ashbi.opentake");
 	}
 
 	session.defaultSession.setPermissionCheckHandler(
@@ -1034,7 +1032,6 @@ app.whenReady().then(async () => {
 	}
 
 	createWindow();
-	setupAutoUpdates(getUpdateDialogWindow, sendUpdateToastToWindows);
 	if (IS_DEV && process.env.RECORDLY_DEV_PREVIEW_UPDATE === "1") {
 		setTimeout(() => {
 			if (process.platform === "darwin") {

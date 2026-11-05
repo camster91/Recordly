@@ -111,7 +111,7 @@ function assertPackagedAppExecutable(unpackedRoot) {
 			? [
 					path.join(appDir, `${productName}.exe`),
 					path.join(appDir, `${packageName}.exe`),
-					path.join(appDir, "Recordly.exe"),
+					path.join(appDir, `${productName}.exe`),
 				]
 			: [
 					path.join(appDir, packageName),
